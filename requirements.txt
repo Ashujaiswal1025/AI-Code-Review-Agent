@@ -1,0 +1,17 @@
+fastapi
+uvicorn
+python-dotenv
+
+pydantic
+pydantic-settings
+
+langchain
+langchain-community
+langchain-ollama
+langchain-chroma
+
+chromadb
+
+tiktoken
+GitPython
+esprima
