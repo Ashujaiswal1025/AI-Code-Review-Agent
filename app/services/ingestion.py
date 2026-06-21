@@ -11,12 +11,14 @@ from langchain_community.document_loaders.generic import GenericLoader
 from langchain_community.document_loaders.parsers import LanguageParser
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-from langchain_ollama import OllamaEmbeddings
+# ✅ Replaced: OllamaEmbeddings → GoogleGenerativeAIEmbeddings
+from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
 
 from app.core.config import get_settings
 
 logger = logging.getLogger(__name__)
+
 
 def sanitize_collection_name(repo_name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]", "_", repo_name)
@@ -90,7 +92,7 @@ def ingest_repository(repo_url: str):
     Full pipeline:
     1. Clone repo
     2. Load & chunk files
-    3. Generate embeddings with Ollama
+    3. Generate embeddings with Gemini
     4. Store in ChromaDB
     """
 
@@ -103,7 +105,7 @@ def ingest_repository(repo_url: str):
 
     repo_path = os.path.join(
         settings.REPO_TEMP_DIR,
-        repo_name
+        repo_name,
     )
 
     # Step 1: Clone Repository
@@ -116,11 +118,16 @@ def ingest_repository(repo_url: str):
         logger.warning("No documents found to ingest.")
         return False
 
-    # Step 3: Ollama Embeddings
-    logger.info("Generating embeddings using Ollama...")
+    # Step 3: Gemini Embeddings
+    # ✅ Replaced: OllamaEmbeddings(model="nomic-embed-text")
+    #    → GoogleGenerativeAIEmbeddings(model="models/embedding-004")
+    #    No local Ollama required — uses your GOOGLE_API_KEY env var.
+    #    embedding-004 is the latest model (embedding-001 is outdated).
+    logger.info("Generating embeddings using Gemini...")
 
-    embeddings = OllamaEmbeddings(
-        model="nomic-embed-text"
+    embeddings = GoogleGenerativeAIEmbeddings(
+         model="gemini-embedding-2-preview",
+        google_api_key=settings.GOOGLE_API_KEY,
     )
 
     # Step 4: Store in ChromaDB
@@ -130,7 +137,7 @@ def ingest_repository(repo_url: str):
         documents=docs,
         embedding=embeddings,
         persist_directory=settings.CHROMA_DB_DIR,
-        collection_name=sanitize_collection_name(repo_name)
+        collection_name=sanitize_collection_name(repo_name),
     )
 
     logger.info(

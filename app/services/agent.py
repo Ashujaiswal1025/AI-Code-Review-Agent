@@ -2,11 +2,10 @@ import os
 import logging
 import re
 
-
 from langchain_core.tools import tool
-from langchain_ollama import ChatOllama, OllamaEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
-from langchain.agents import create_agent
+from langgraph.prebuilt import create_react_agent
 
 from app.core.config import get_settings
 
@@ -16,6 +15,7 @@ logger = logging.getLogger(__name__)
 def get_repo_path(repo_name: str) -> str:
     settings = get_settings()
     return os.path.join(settings.REPO_TEMP_DIR, repo_name)
+
 
 def sanitize_collection_name(repo_name: str) -> str:
     return re.sub(r"[^a-zA-Z0-9._-]", "_", repo_name)
@@ -32,15 +32,17 @@ def search_codebase(query: str, repo_name: str) -> str:
     if not os.path.exists(settings.CHROMA_DB_DIR):
         return "Error: Database is empty. Please ingest the repository first."
 
-    embeddings = OllamaEmbeddings(
-        model="nomic-embed-text"
+    # ✅ Fixed: use settings.GOOGLE_API_KEY (consistent with rest of project)
+    # ✅ Fixed: model="gemini-embedding-2-preview" (was "models/embedding-001")
+    embeddings = GoogleGenerativeAIEmbeddings(
+        model="gemini-embedding-2-preview",
+        google_api_key=settings.GOOGLE_API_KEY,
     )
 
     vectorstore = Chroma(
         persist_directory=settings.CHROMA_DB_DIR,
         embedding_function=embeddings,
-        collection_name=sanitize_collection_name(repo_name)
-
+        collection_name=sanitize_collection_name(repo_name),
     )
 
     docs = vectorstore.similarity_search(query, k=5)
@@ -49,13 +51,9 @@ def search_codebase(query: str, repo_name: str) -> str:
         return "No relevant code found."
 
     formatted_docs = []
-
     for d in docs:
         source = d.metadata.get("source", "Unknown file")
-
-        formatted_docs.append(
-            f"--- {source} ---\n{d.page_content}\n"
-        )
+        formatted_docs.append(f"--- {source} ---\n{d.page_content}\n")
 
     return "\n".join(formatted_docs)
 
@@ -63,14 +61,12 @@ def search_codebase(query: str, repo_name: str) -> str:
 @tool
 def read_file(file_path: str, repo_name: str) -> str:
     """
-    Read the content of a specific file.
+    Read the content of a specific file in the repository.
     """
     repo_path = get_repo_path(repo_name)
     full_path = os.path.join(repo_path, file_path)
 
-    if not os.path.abspath(full_path).startswith(
-        os.path.abspath(repo_path)
-    ):
+    if not os.path.abspath(full_path).startswith(os.path.abspath(repo_path)):
         return "Error: File path is outside the repository."
 
     if not os.path.exists(full_path):
@@ -82,35 +78,30 @@ def read_file(file_path: str, repo_name: str) -> str:
     try:
         with open(full_path, "r", encoding="utf-8") as f:
             return f.read()
-
     except Exception as e:
         return f"Error reading file {file_path}: {str(e)}"
 
 
 @tool
-def analyze_code(
-    query: str,
-    file_path: str,
-    repo_name: str,
-) -> str:
+def analyze_code(query: str, file_path: str, repo_name: str) -> str:
     """
     Analyze a specific file for bugs,
     code quality issues and improvements.
     """
-
     file_content = read_file.invoke(
-        {
-            "file_path": file_path,
-            "repo_name": repo_name,
-        }
+        {"file_path": file_path, "repo_name": repo_name}
     )
 
     if isinstance(file_content, str) and file_content.startswith("Error"):
         return file_content
 
-    llm = ChatOllama(
-        model="qwen3:8b",
+    # ✅ Fixed: reads api_key from settings (not os.environ directly)
+    settings = get_settings()
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
         temperature=0.2,
+        google_api_key=settings.GOOGLE_API_KEY,
+        max_retries=2,
     )
 
     prompt = f"""
@@ -133,21 +124,16 @@ Provide:
     try:
         response = llm.invoke(prompt)
         return response.content
-
     except Exception as e:
         return f"Error analyzing code: {str(e)}"
 
 
 @tool
-def generate_docs(
-    directory_path: str,
-    repo_name: str,
-) -> str:
+def generate_docs(directory_path: str, repo_name: str) -> str:
     """
     Generate high-level documentation
     for files inside a directory.
     """
-
     repo_path = get_repo_path(repo_name)
 
     target_dir = (
@@ -157,33 +143,28 @@ def generate_docs(
     )
 
     if not os.path.exists(target_dir):
-        return (
-            f"Error: Directory "
-            f"{directory_path} does not exist."
-        )
+        return f"Error: Directory {directory_path} does not exist."
 
     file_summaries = []
-
     for root, dirs, files in os.walk(target_dir):
-
         if ".git" in root or "node_modules" in root:
             continue
-
         for file in files:
             file_path = os.path.relpath(
                 os.path.join(root, file),
                 repo_path,
             )
-
-            file_summaries.append(
-                f"- {file_path}"
-            )
+            file_summaries.append(f"- {file_path}")
 
     summary_text = "\n".join(file_summaries)
 
-    llm = ChatOllama(
-        model="qwen3:8b",
+    # ✅ Fixed: reads api_key from settings (not os.environ directly)
+    settings = get_settings()
+    llm = ChatGoogleGenerativeAI(
+        model="gemini-2.5-flash",
         temperature=0.2,
+        google_api_key=settings.GOOGLE_API_KEY,
+        max_retries=2,
     )
 
     prompt = f"""
@@ -204,30 +185,11 @@ Include:
     try:
         response = llm.invoke(prompt)
         return response.content
-
     except Exception as e:
         return f"Error generating docs: {str(e)}"
 
 
-class AIReviewAgent:
-    def __init__(self):
-
-        self.llm = ChatOllama(
-            model="qwen3:8b",
-            temperature=0.2,
-        )
-
-        self.tools = [
-            search_codebase,
-            read_file,
-            analyze_code,
-            generate_docs,
-        ]
-
-        self.agent = create_agent(
-            model=self.llm,
-            tools=self.tools,
-            system_prompt="""
+SYSTEM_PROMPT = """
 You are an expert GitHub AI Code Review Agent.
 
 Capabilities:
@@ -262,7 +224,33 @@ The repository name will be included in the user request.
 When calling tools, always pass the repo_name.
 
 Your primary goal is to provide accurate, evidence-based answers while minimizing hallucinations.
-""",
+"""
+
+
+class AIReviewAgent:
+    # ✅ Fixed: added api_key param to match main.py calling AIReviewAgent(api_key=...)
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+
+        # ✅ Fixed: LLM now uses the passed-in api_key, not os.environ
+        self.llm = ChatGoogleGenerativeAI(
+            model="gemini-2.5-flash",
+            temperature=0.2,
+            google_api_key=self.api_key,
+            max_retries=2,
+        )
+
+        self.tools = [
+            search_codebase,
+            read_file,
+            analyze_code,
+            generate_docs,
+        ]
+
+        self.agent = create_react_agent(
+            model=self.llm,
+            tools=self.tools,
+            prompt=SYSTEM_PROMPT,
         )
 
     async def process_message(
@@ -299,10 +287,8 @@ repo_name="{repo_name}"
             if not messages:
                 return "No response generated."
 
-            return messages[-1].content
+            return messages[-1].text
 
         except Exception as e:
-            logger.error(
-                f"Agent error: {str(e)}"
-            )
+            logger.error(f"Agent error: {str(e)}")
             raise

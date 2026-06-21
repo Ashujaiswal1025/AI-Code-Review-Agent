@@ -7,8 +7,10 @@ pydantic-settings
 
 langchain
 langchain-community
-langchain-ollama
+langchain-text-splitters
+langchain-google-genai
 langchain-chroma
+langgraph
 
 chromadb
 

@@ -6,11 +6,21 @@ from dotenv import load_dotenv
 
 from app.services.ingestion import ingest_repository
 from app.services.agent import AIReviewAgent
+from app.core.config import get_settings
 
 load_dotenv()
 
 
 async def main():
+
+    # ✅ Validate API key before doing anything else
+    settings = get_settings()
+
+    if not settings.GOOGLE_API_KEY:
+        print("Error: GOOGLE_API_KEY is not set in your .env file.")
+        print("Add this line to .env:  GOOGLE_API_KEY=your_key_here")
+        print("Get a free key at: https://aistudio.google.com/apikey")
+        sys.exit(1)
 
     print("=== Welcome to AI Code Review Agent (Terminal Mode) ===\n")
 
@@ -46,10 +56,12 @@ async def main():
         print(f"\nError ingesting repository: {e}")
         sys.exit(1)
 
-    print(f"[2/2] Starting Ollama Agent for {repo_name}...")
+    # ✅ Fixed: was "Starting Ollama Agent" — now correctly says Gemini
+    print(f"[2/2] Starting Gemini Agent for {repo_name}...")
 
     try:
-        agent = AIReviewAgent()
+        # ✅ Fixed: AIReviewAgent now requires api_key argument
+        agent = AIReviewAgent(api_key=settings.GOOGLE_API_KEY)
 
     except Exception as e:
         print(f"Failed to initialize agent: {e}")

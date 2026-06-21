@@ -6,6 +6,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     PROJECT_NAME: str = "AI Code Review Agent"
 
+    # Google Gemini
+    GOOGLE_API_KEY: str = ""
+
     # Optional
     GITHUB_TOKEN: str = ""
 
