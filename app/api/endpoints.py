@@ -4,6 +4,8 @@ import traceback
 
 from app.services.agent import AIReviewAgent
 from app.services.ingestion import ingest_repository
+from app.core.config import get_settings
+
 
 router = APIRouter()
 
@@ -59,8 +61,8 @@ async def chat_endpoint(
     request: ChatRequest,
 ):
     try:
-        agent = AIReviewAgent()
-
+        settings = get_settings()
+        agent = AIReviewAgent(api_key=settings.GOOGLE_API_KEY)
         response_text = await agent.process_message(
             request.message,
             request.repo_name,
