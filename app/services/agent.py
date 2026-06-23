@@ -287,7 +287,17 @@ repo_name="{repo_name}"
             if not messages:
                 return "No response generated."
 
-            return messages[-1].text
+            last_message = messages[-1]
+            content = last_message.content
+            
+            if isinstance(content, list):
+                text_parts = [
+                    item.get("text", "") if isinstance(item, dict) else str(item)
+                    for item in content
+                ]
+                return "".join(text_parts)
+            
+            return str(content)
 
         except Exception as e:
             logger.error(f"Agent error: {str(e)}")
